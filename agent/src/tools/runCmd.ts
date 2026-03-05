@@ -5,7 +5,11 @@ export async function runCmd(cmd: string, cwd: string) {
     cwd,
     shell: true,
     reject: false,
-    env: process.env,
+    env: {
+      ...process.env,
+      NO_COLOR: "1",
+      FORCE_COLOR: "0",
+    },
   });
   const { stdout, stderr, exitCode } = await p;
   return { cmd, cwd, stdout, stderr, exitCode };

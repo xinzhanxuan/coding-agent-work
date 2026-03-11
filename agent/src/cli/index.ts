@@ -1,7 +1,5 @@
 import { existsSync } from "node:fs";
-import { runTests } from "../core/runTests";
-import { saveRun } from "../core/saveRun";
-import { json } from "node:stream/consumers";
+import { runFixTask } from "../app/run-fix-task";
 
 function getArg(name: string) {
   const idx = process.argv.indexOf(name);
@@ -28,23 +26,9 @@ async function main() {
     console.error(`Repo path not found: ${repo}`);
     process.exit(1);
   }
-
-  const testRes = await runTests(repo);
-  const run = {
-    cmd,
-    repo,
-    issue,
-    now: new Date().toISOString(),
-    test: {
-      exitCode: testRes.exitCode,
-      stdout: testRes.stdout,
-      stderr: testRes.stderr,
-    },
-  };
-  console.log(JSON.stringify(run));
-  const savedPath = await saveRun(run);
+  const { savedPath, verifyExitCode } = await runFixTask({ cmd, repo, issue });
   console.log("saved:", savedPath);
-  process.exit(testRes.exitCode ?? 0);
+  process.exit(verifyExitCode);
 }
 main().catch((err) => {
   console.error(err);

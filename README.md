@@ -4,7 +4,7 @@ A small TypeScript workspace for exploring a CLI-style coding agent.
 
 This repository currently contains:
 
-- `agent`: a minimal command-line entry point that accepts a `fix` task, validates input, and prints a structured task payload.
+- `agent`: a CLI coding-agent prototype that runs verification, retrieves evidence, and persists structured run artifacts.
 - `agent-playground`: a tiny TypeScript project with a deliberate bug and a failing test, used as a target repo for the agent.
 
 The codebase is intentionally small. It is meant to make the agent loop easy to understand before adding real automation such as repository scanning, code edits, and test execution.
@@ -14,7 +14,15 @@ The codebase is intentionally small. It is meant to make the agent loop easy to 
 ```text
 .
 ├── agent/
-│   └── src/cli/index.ts
+│   ├── src/
+│   │   ├── app/              # use-case orchestration
+│   │   ├── artifacts/        # run artifact persistence
+│   │   ├── cli/              # argument parsing and process exit behavior
+│   │   ├── domain/           # shared domain types
+│   │   ├── infra/            # command/file/search adapters
+│   │   ├── retrieval/        # repository evidence retrieval logic
+│   │   └── verification/     # verification step runners
+│   └── runs/                 # JSON run artifacts
 └── agent-playground/
     └── src/
         ├── sum.ts
@@ -23,20 +31,22 @@ The codebase is intentionally small. It is meant to make the agent loop easy to 
 
 ## What The Agent Does Today
 
-The current CLI is a thin prototype. It does the following:
+The current agent does the following:
 
 1. Reads command-line arguments from `process.argv`.
 2. Accepts only the `fix` command.
 3. Requires `--repo` and `--issue`.
 4. Verifies that the target repo path exists.
-5. Prints a JSON payload describing the task and the next planned step.
+5. Runs `pnpm test` in the target repo and captures structured output.
+6. Retrieves likely related files using issue keywords, test output paths, and test-import expansion.
+7. Persists a typed `RunRecord` artifact in `agent/runs/*.json`.
 
 It does **not** yet:
 
-- inspect the target repository
-- run tests
-- edit code
-- verify a fix automatically
+- generate code patches with an LLM
+- apply patches to the repository
+- run multi-step verification (`lint/tsc/test/build`)
+- loop on failures for automatic repair
 
 ## Quick Start
 
@@ -71,7 +81,8 @@ Expected behavior:
 
 - the CLI validates the command
 - the CLI validates the repo path
-- the CLI prints a JSON object with `cmd`, `repo`, `issue`, `now`, and `next`
+- the CLI executes tests and retrieval
+- the CLI saves a structured run artifact path
 
 If the command or arguments are invalid, it exits with a usage message or an error.
 
@@ -97,24 +108,24 @@ The goal is to build up an agent loop step by step:
 6. Re-run validation.
 7. Report the result.
 
-The current implementation covers only the first step and a small part of task validation.
+The current implementation now covers steps 1-4 partially (with logs), but does not yet perform edit/apply/retry automation.
 
 ## Current Tech Stack
 
 - TypeScript
 - `tsx` for running TypeScript directly
 - `vitest` in the playground project
-- `execa` is installed in `agent` for future command execution work
+- `execa` for command execution and repo search helpers
 
 ## Next Steps
 
 Good next milestones for this project:
 
-1. Use `execa` in `agent` to run tests inside the target repo.
-2. Add basic repository inspection (for example, detect `package.json` and test scripts).
-3. Capture test failures and print a structured diagnosis.
-4. Implement a first automatic fix flow for the playground bug.
-5. Add integration tests for the CLI itself.
+1. Add LLM patch generation with strict unified-diff output constraints.
+2. Add safe patch application (`git apply --check` then `git apply`).
+3. Add verification pipeline orchestration (`lint -> tsc -> test -> build`).
+4. Add loop control for retry/failure taxonomy and stop conditions.
+5. Add regression tasks and basic success-rate metrics.
 
 ## License
 

@@ -39,8 +39,10 @@ export interface RetrieveStage {
 export interface EditStage {
   status: StageStatus;
   durationMs?: number;
+  backend?: "heuristic" | "llm";
   model?: string;
   promptHash?: string;
+  rawDiffBytes?: number;
   diffSummary?: {
     changedFiles: string[];
     addedLines?: number;
@@ -74,6 +76,24 @@ export interface VerifyStage {
   error?: StageError;
 }
 
+export interface RunRound {
+  round: number;
+  status: StageStatus;
+  stopReason?:
+    | "success"
+    | "retrieve_failed"
+    | "edit_failed"
+    | "apply_failed"
+    | "verify_failed"
+    | "infra_failed";
+  stages: {
+    retrieve: RetrieveStage;
+    edit: EditStage;
+    apply: ApplyStage;
+    verify: VerifyStage;
+  };
+}
+
 export interface RunMetrics {
   totalDurationMs?: number;
   tokenIn?: number;
@@ -95,12 +115,7 @@ export interface RunRecord {
   startedAt: string;
   finishedAt?: string;
   task: RunTask;
-  stages: {
-    retrieve: RetrieveStage;
-    edit: EditStage;
-    apply: ApplyStage;
-    verify: VerifyStage;
-  };
+  rounds: RunRound[];
   metrics: RunMetrics;
   finalStatus: FinalStatus;
   failureType?: FailureType;

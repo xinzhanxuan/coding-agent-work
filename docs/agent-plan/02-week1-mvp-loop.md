@@ -1,105 +1,104 @@
-# Week 1: MVP 闭环（Issue -> Patch -> Test）
+# Phase 1: 单仓库修复闭环
 
-## 本周定位
+## 阶段目标
 
-Week 1 的任务不是“做一个完整 agent 平台”，而是把下面这个最小状态机跑通：
+在 `agent-playground` 上稳定跑通：
 
-`task intake -> retrieve -> edit -> apply -> verify -> save run`
+`issue -> retrieve -> patch -> apply -> test -> save run`
 
-如果这条链不稳定，后面的 durable execution、skills、policy、PR 交付都会变成空中楼阁。
+这不是“先做个 demo”，而是整个项目最关键的技术底盘。后面的审批、skills、异步任务、GitHub 集成，都会建立在这条链是否稳定上。
 
-## Week 1 目标
+## 这一阶段必须学懂什么
 
-在 `agent-playground` 上稳定完成：
+### 1. Retrieval 不是找文件，而是构建证据
 
-- 输入 issue
-- 自动检索相关代码
-- 生成并应用最小补丁
-- 运行测试验证
-- 输出结构化日志
+必须理解：
 
-## 本周非目标
+- 为什么只给模型整个仓库通常会失败
+- 为什么 evidence 需要 `文件 + 片段 + 命中理由`
+- 为什么 retrieval 错了，patch 大概率也会错
 
-- 不做多入口接入（GitHub/Jira/CI）
-- 不做真实 sandbox 编排系统
-- 不做复杂审批/权限中心
-- 不做全面 benchmark，只做最小回放样本
-- 不做大规模多语言支持，先聚焦 Node/TS playground
+必须产物：
 
-## 任务分解
+- evidence bundle
+- 命中理由
+- 上下文长度控制策略
 
-## W1-D1: 统一运行数据模型
+### 2. Patch 是工程约束问题，不是文采问题
 
-- 实现项：
-  - `RunRecord` 类型定义（建议放 `src/domain/run-record.ts`）
-  - `saveRun` 支持阶段化字段：`retrieve/edit/apply/verify`
-- 机制理解重点：
-  - 为什么要“事件溯源式日志”：便于复盘和回归
-- 验收命令：
-  - `pnpm agent fix --repo ../agent-playground --issue "sum test is failing"`
-- 输出约束：
-  - 失败类型必须能分到 `retrieve/edit/apply/verify/infra`
+必须理解：
 
-## W1-D2: 工具层稳定性
+- 为什么要强约束 unified diff 格式
+- 为什么必须限制改动文件白名单
+- 为什么 patch 无法解析时必须直接失败
 
-- 实现项：
-  - `runCmd` 增加 `timeoutMs`
-  - 为 `search/read/run/apply` 统一返回格式
-- 机制理解重点：
-  - coding agent 的失败通常来自工具层不稳定，而不是模型能力
-- 验收标准：
-  - 超时、非 0 退出码、stderr 都能入日志
-- 工程约束：
-  - shell 输出必须可截断、可结构化、可回放
+必须产物：
 
-## W1-D3: 检索与上下文构建
+- `generatePatch(issue, evidence)`
+- diff parser
+- 非法 diff 的失败路径
 
-- 实现项：
-  - `retrieve` 输出 `evidence`（文件 + 片段 + 命中理由）
-  - 限制上下文长度（避免 token 爆炸）
-- 机制理解重点：
-  - context retrieval 决定 patch 质量上限
-- 验收标准：
-  - 可解释“为何选中该文件”
-- 工程约束：
-  - evidence 必须给出命中理由，不能只给文件列表
+### 3. Apply 是第一道硬门槛
 
-## W1-D4: 首版 patch 生成
+必须理解：
 
-- 实现项：
-  - `generatePatch(issue, evidence)`
-  - prompt 三段式：`task`, `constraints`, `expected_diff_format`
-- 机制理解重点：
-  - 约束输出比“让模型自由发挥”更关键
-- 验收标准：
-  - 仅修改白名单文件，输出 unified diff
-- 工程约束：
-  - patch 无法解析时必须失败，不允许隐式写文件
+- 为什么“模型说改好了”不等于 patch 能落地
+- `git apply --check` 这类预检查为什么重要
+- apply 失败和 edit 失败为什么要分开记
 
-## W1-D5: apply + verify 闭环
+必须产物：
 
-- 实现项：
-  - `applyPatch(diff)`（建议先 `git apply --check` 再 apply）
-  - `verify` 先只跑 test
-- 机制理解重点：
-  - “可验证”是 agent 区别于普通 chat 的核心
-- 验收标准：
-  - playground 任务至少成功 1 次完整自动修复
-- 工程约束：
-  - apply 失败和 verify 失败必须分开记录
+- `applyPatch(diff)`
+- apply 前检查
+- apply 失败日志
 
-## Week 1 产物清单
+### 4. Verify 必须独立
 
-- `runs/*.json`（至少 3 条）
-- 一条成功 case 的全链路日志
-- 一份失败类型统计（哪一步最容易挂）
-- 一份“本周没做什么”的边界说明
+必须理解：
 
-## Week 1 风险与对策
+- 为什么 success 只能由验证链定义
+- 为什么最开始只跑 test 就够
+- 为什么 verify 输出需要结构化，而不是一整坨 stdout/stderr
 
-- 风险：LLM diff 格式不稳定
-  - 对策：严格格式校验，不合法直接重试
-- 风险：检索误召回导致改错文件
-  - 对策：路径白名单 + Top-K 截断 + 命中理由
-- 风险：测试输出噪音太大
-  - 对策：提取关键报错（文件/行号/错误类型）
+必须产物：
+
+- `verify` 结果结构
+- 至少 1 个自动修复成功案例
+
+## 实现顺序
+
+1. 统一 `RunRecord` 与 failure taxonomy
+2. 把 retrieve 产物升级为 evidence bundle
+3. 接入 patch 生成
+4. 做 patch apply
+5. 接入最小 verify
+6. 跑通完整 playground case
+
+## 本阶段明确不做
+
+- 不做多轮修复
+- 不做 `lint + tsc + build`
+- 不做 Git branch / commit / PR
+- 不做复杂审批和权限中心
+- 不做异步任务系统
+
+## 验收标准
+
+- playground 至少 1 个失败 case 被自动修复
+- 至少有 3 条可回放 run artifact
+- failure type 至少能区分：
+  - `retrieve_failed`
+  - `edit_failed`
+  - `apply_failed`
+  - `verify_failed`
+  - `infra_failed`
+
+## 阶段复盘必须回答的问题
+
+完成 Phase 1 后，必须能清楚回答：
+
+1. retrieval 为什么选中了这些文件
+2. patch 为什么是这个 diff，而不是另一个 diff
+3. apply 为什么成功或失败
+4. verify 为什么判定这次 run 成功或失败
+5. 当前成功率受限于 retrieval、patch、apply、还是 verify

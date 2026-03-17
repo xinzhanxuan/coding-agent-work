@@ -1,219 +1,204 @@
-# Target Architecture And Phase Mapping
+# Target Architecture
 
-## 为什么要有这份文档
+## 目标定义
 
-当前仓库只做到了 coding agent 的早期骨架，但后续会不断遇到同一个问题：
+最终目标不是做一个“能调用终端的 LLM”，而是做出一个接近 `Claude Code / Codex` 核心能力形态的 coding agent 系统。
 
-- 哪些能力应该现在做
-- 哪些能力只是北极星，不该提前堆
-- 新增能力属于哪一层，应该落到代码、脚本、文档还是平台
+这个目标拆成 8 层。
 
-这份文档用于把长期目标压缩成一个稳定的分层框架，避免路线图反复漂移。
+## 1. Task Intake
 
-## 北极星架构
+负责把不同来源的请求统一成任务对象。
 
-### 1. Task Intake
+目标能力：
 
-统一各种入口，最终收敛成标准任务对象。
+- chat 输入
+- GitHub issue / PR comment
+- CI failure
+- 统一 task schema
 
-建议目标模型：
+为什么重要：
 
-```ts
-type AgentTask = {
-  id: string;
-  source: "chat" | "github_issue" | "pr_comment" | "jira" | "ci_failure";
-  repo: string;
-  branch?: string;
-  goal: string;
-  constraints?: string[];
-  attachments?: string[];
-  metadata?: Record<string, unknown>;
-};
-```
+- 不统一任务对象，后续 workflow 无法稳定复用
 
-当前仓库映射：
+当前仓库状态：
 
-- 已有：CLI 入口
-- 缺失：统一 task schema、source 分类、metadata 模型
+- 已有 CLI 输入
+- 缺统一 task model
 
-### 2. Orchestrator / State Graph
+## 2. Orchestrator / State Graph
 
-把执行链建模成阶段化状态，而不是 while loop 式自由调用。
+负责定义任务如何流经各阶段。
 
-建议最小节点：
+目标能力：
 
-1. intake
-2. bootstrap
-3. retrieve
-4. plan
-5. edit
-6. apply
-7. verify
-8. summarize
-9. deliver
+- 明确节点：retrieve / plan / edit / apply / verify / summarize / deliver
+- round 概念
+- stop reason
+- checkpoint / resume
 
-当前仓库映射：
+为什么重要：
 
-- 已有：`run-fix-task.ts` 雏形
-- 缺失：显式状态迁移、round 概念、resume/checkpoint
+- 工程 agent 的本质不是“连续对话”，而是“状态推进”
 
-### 3. Model Responsibility Split
+当前仓库状态：
 
-模型不应只剩一个“大 prompt”。
+- 已有单次流程雏形
+- 缺显式状态机
 
-建议职责拆分：
+## 3. Model Roles
 
-- planner：分析 root cause、候选文件、验证方案
-- coder：生成最小 diff
-- verifier/reviewer：基于日志和 diff 做独立判断
-- summarizer：生成 PR 文本和风险说明
+负责把模型职责拆开。
 
-当前仓库映射：
+目标能力：
 
-- 已有：无
-- 近期目标：先接单模型，但在接口层保留 role 字段
+- planner
+- coder
+- verifier / reviewer
+- summarizer
 
-### 4. Tool Platform
+为什么重要：
 
-工具平台应按职责分组，而不是零散函数堆积。
+- 不同阶段的目标完全不同，不能长期靠一个大 prompt 兜底
 
-最低分组：
+当前仓库状态：
 
-- code understanding：search/read/repo map/import graph
-- file ops：apply patch、write file、safe create/move
-- execution：shell/test/lint/build
-- delivery：git branch/commit/pr draft
-- observability：log/artifact/metrics
+- 还未接入明确角色层
 
-当前仓库映射：
+## 4. Tool Platform
 
-- 已有：search/read/run/save
-- 缺失：patch、git、summary、统一 tool result schema 文档
+负责让模型使用稳定、受控的工具，而不是零散 helper。
 
-### 5. Runtime / Sandbox
+目标能力：
 
-长期应做到：
+- code search / read
+- patch apply
+- shell exec
+- verify exec
+- git delivery
+- artifact/log collection
 
-- 每任务独立 workspace
-- 独立 branch
-- 可控 shell 执行
-- 输出截断与脱敏
-- timeout / quota / replay
+为什么重要：
 
-当前仓库映射：
+- coding agent 的成功率，很多时候取决于工具层是否稳定
 
-- 已有：本地 repo 目录执行、命令 timeout
-- 缺失：真实隔离环境、secret policy、network policy、workspace lifecycle
+当前仓库状态：
 
-### 6. Context / Skills / Playbooks
+- 已有 search / read / run / save
+- 缺 patch / git / tool schema 统一层
 
-上下文分层：
+## 5. Runtime / Sandbox
 
-- task context：issue、报错、最近输出
-- repo context：模块边界、运行命令、测试入口
-- org context：PR 模板、review 规则、发布规范
-- persistent skills：高频任务流程模板
+负责提供受控执行环境。
 
-建议仓库结构目标：
+目标能力：
 
-```txt
-.agent/
-  skills/
-  playbooks/
-  policies/
-  evals/
-```
+- isolated workspace
+- branch isolation
+- timeouts / quotas
+- audit
+- output truncation / masking
 
-当前仓库映射：
+为什么重要：
 
-- 已有：`AGENTS.md` + docs
-- 缺失：skills/playbooks/policies/evals 的实体目录
+- 真正能改代码、跑命令的 agent 必须被约束
 
-### 7. Governance / Risk Control
+当前仓库状态：
 
-最低要求：
+- 只有本地 repo 执行 + timeout
 
-- 权限分级
-- 高风险操作审批
-- 敏感目录边界
-- shell/file 操作策略规则
-- 审计可回放
+## 6. Context / Skills / Playbooks
 
-当前仓库映射：
+负责把 repo 规则和高频流程沉淀下来。
 
-- 已有：文档级执行边界
-- 缺失：真正的策略引擎与审批 gate
+目标能力：
 
-### 8. Eval / Observability
+- repo context
+- AGENTS 规则
+- skills
+- playbooks
+- policy docs
 
-必须同时具备：
+为什么重要：
 
-- 单次 run artifact
-- 回归任务集
-- 核心指标统计
-- trace/replay
+- 长期可维护性来自沉淀，不来自 prompt 越写越长
 
-当前仓库映射：
+当前仓库状态：
 
-- 已有：`runs/*.json`
-- 缺失：标准 taskset、eval runner、report 聚合、成功率趋势
+- 已有 `AGENTS.md` 和 docs
+- 缺技能与流程实体目录
 
-## 分阶段落地
+## 7. Governance / Approval
 
-## Phase 1: MVP Loop
+负责高风险控制与人机协作边界。
 
-聚焦：
+目标能力：
 
-- task schema
-- evidence retrieval
-- patch generation
-- safe apply
-- single verify
-- run artifact
+- risk rules
+- approval gates
+- sensitive path rules
+- command restrictions
+- audit trail
 
-Definition of Done：
+为什么重要：
 
-- playground 中至少 1 个失败任务可自动修复
-- 至少 3 条可回放日志
+- 越接近真实工程流，越不能只追求自动化
 
-## Phase 2: PR-Grade Delivery
+当前仓库状态：
 
-聚焦：
+- 只有文档级约束
 
-- multi-step verify
-- retry loop
-- branch / commit / PR draft
-- minimal eval suite
-- minimal risk rules
+## 8. Eval / Observability
 
-Definition of Done：
+负责判断系统是否真的变强了。
 
-- 5~10 条固定任务可跑出 success rate
-- 输出 PR 文本只引用验证过的事实
+目标能力：
 
-## Phase 3: Platformization
+- run artifacts
+- replay
+- regression taskset
+- success metrics
+- cost metrics
 
-聚焦：
+为什么重要：
 
-- skills / playbooks / policies
-- durable execution
-- external integrations
-- approval center
-- dashboard / BI
+- 没有 eval，就只有 demo，没有工程闭环
 
-Definition of Done：
+当前仓库状态：
 
-- 同一个 agent runtime 能稳定服务多个任务入口
-- 能中断恢复、审计、回放
+- 已有 `runs/*.json`
+- 缺 taskset、eval runner、聚合视图
 
-## 设计决策准则
+## 层与阶段映射
 
-新增能力时，先问这 5 个问题：
+### Phase 0
+
+- 主要建设：1, 2, 8 的文档与骨架
+
+### Phase 1
+
+- 主要建设：2, 4, 8
+
+### Phase 2
+
+- 主要建设：2, 4, 7, 8
+
+### Phase 3
+
+- 主要建设：1, 2, 6, 7
+
+### Phase 4
+
+- 主要建设：全部 8 层
+
+## 使用方式
+
+新增需求时，先问：
 
 1. 它属于哪一层？
-2. 它是当前阶段 DoD 的必要条件吗？
-3. 它应该落到代码、日志、skill、policy 还是后续平台？
-4. 它有没有最小可验证版本？
-5. 如果现在不做，会不会阻塞后续阶段？
+2. 它属于哪个阶段？
+3. 它是这个阶段的主问题吗？
+4. 它要求我先学懂什么机制？
+5. 如果今天不做，会不会阻塞当前阶段主线？
 
-如果第 2 和第 5 个问题都是否，优先延后。
+如果第 3 个问题是否，第 5 个问题也是否，通常先不做。

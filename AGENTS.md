@@ -1,134 +1,193 @@
 # Repo Agent Execution Guide
 
-本仓库的总目标：
+本仓库的最终目标：
 
-> 输入一个 Issue（或报错/需求），自动在 repo 里定位相关代码 -> 生成最小 diff -> 应用 -> 运行验证（lint/tsc/test/build）-> 失败后根据日志再修复 -> 最终产出可合并 PR + 全链路日志。
+> 逐步做出一个接近 `Claude Code / Codex` 核心能力形态的 coding agent：能理解真实仓库、受控修改代码、运行验证、产出 Git 交付物，并且具备规则、审批、可观测和阶段化演进能力。
 
-## 北极星定位（2026-03-17）
+## 最终目标是什么
 
-这个仓库不是在做“会调工具的聊天机器人”，而是在逐步做成一个面向真实仓库的 `issue -> patch -> verify -> PR` 软件工程执行系统。
+这里说的“像 Claude Code / Codex”，不是追求产品界面或品牌形态，而是对齐下面这些核心能力：
 
-长期目标按 8 层理解：
+1. 在真实 repo 中工作，而不是只在对话里回答问题
+2. 能检索代码、形成判断、生成最小 diff、执行验证
+3. 能在受控边界内执行 shell / git / patch 操作
+4. 能沉淀仓库规则、技能、风险边界，而不是只靠单次 prompt
+5. 能逐步接近 `issue -> patch -> verify -> PR` 的完整工程流
 
-1. 任务入口层：chat / issue / PR comment / CI failure
-2. 编排层：state machine / workflow graph / durable execution
-3. 模型层：planner / coder / verifier / reviewer 的职责拆分
-4. 工具层：retrieve / file ops / shell / git / external systems
-5. runtime 层：隔离 workspace、受控执行、可审计
-6. context 层：repo context / skills / playbooks / policy
-7. 治理层：权限、审批、风险分级、审计
-8. eval/observability 层：trace、回放、基准任务、线上指标
+这个仓库当前还远没有到那个成熟度。它现在更接近：
 
-当前仓库仍处于 `单仓库、单 runtime、半自动` 阶段。近期工作不是把 8 层一次性做完，而是把它们压缩进一个可演进的 MVP 骨架里。
+- 一个 `single-repo + local runtime + staged run record` 的骨架
+- 一个用于理解 coding agent 技术细节的实验台
+- 一个以后可以稳定长成产品级能力的最小底座
+
+## 最高优先级原则
+
+1. 不迈大步子。任何阶段都只解决一类核心问题。
+2. 每一阶段都必须“能运行、能复现、能解释、能回放”。
+3. 每新增一个能力，都要同时回答“它为什么现在做”和“它属于哪一层架构”。
+4. 模型能力不是主线，工具稳定性、状态机、验证链、日志才是主线。
+5. 如果一个机制还没有真正理解，就不要把它包装成“平台能力已完成”。
 
 ## 当前基线（2026-03-17）
 
-你已经有以下基础能力：
+已存在基础能力：
 
 - CLI 入口：`agent/src/cli/index.ts`
-- 流程编排：`agent/src/app/run-fix-task.ts`
+- 编排入口：`agent/src/app/run-fix-task.ts`
 - 测试执行：`agent/src/verification/run-tests.ts`
-- 基础检索：`agent/src/retrieval/retrieve-evidence.ts` + `agent/src/infra/search-files.ts`
-- 日志落盘：`agent/src/artifacts/save-run-record.ts`（JSON）
+- 基础检索：`agent/src/retrieval/retrieve-evidence.ts`
+- 命令执行：`agent/src/infra/run-command.ts`
+- 日志落盘：`agent/src/artifacts/save-run-record.ts`
 
-缺口主要在：`LLM patch 生成`、`apply patch`、`验证闭环重试`、`Git/PR 交付`、`评估指标`。
-
-当前默认任务形态仍是：
+当前真实状态：
 
 - 输入：单条 issue / 报错描述
 - 环境：本地 repo 路径
-- 执行：一次 retrieve + verify
+- 执行：`retrieve + verify + save run`
 - 产物：`runs/*.json`
 
-不要误判当前成熟度。现阶段代码更接近“状态机骨架 + 可观测底座”，不是完整 coding agent。
+当前关键缺口：
 
-## 当前阶段与边界
+- LLM patch 生成
+- patch 解析与 apply
+- 多轮修复循环
+- 多步骤验证链
+- Git/PR 交付
+- 固定任务集与评估
 
-### Phase 1（正在做）
+## 分阶段路线
 
-目标：在 `agent-playground` 跑通单任务闭环。
+整个项目按 `Phase 0 -> Phase 4` 推进。
 
-必须完成：
+### Phase 0：骨架校准
 
-- 标准化任务模型、运行日志、失败分类
-- 检索相关代码并形成可解释 evidence
-- 生成最小 diff 并安全应用
-- 跑 `test`，再扩到 `lint + tsc + test + build`
-- 最多 N 轮自动修复重试
-- 输出 PR 草稿和回归结果
+目标：
 
-明确不做：
+- 明确最终目标、非目标、阶段边界
+- 统一 run artifact、failure taxonomy、阶段定义
+- 把项目从“想法集合”收敛成清晰路线
 
-- 不做真正的多 agent 自由协作
-- 不做复杂企业平台接入
-- 不做全自动 merge
-- 不为“未来平台化”提前引入过重基础设施
+这一阶段必须真正理解：
 
-### Phase 2（Week 2 之后）
+- 为什么 coding agent 不是聊天机器人
+- 为什么状态机比自由对话更适合工程执行
+- 为什么 run artifact 和 failure taxonomy 要先于更多模型能力
 
-目标：从单闭环升级到 PR 级交付。
+退出门槛：
 
-- Git branch / commit / PR draft
-- 小型回归任务集和 success rate
-- 基础 risk rule 和 approval gate
-- 可回放的 trace 与 run artifact
+- `AGENTS.md` 和 docs 能清楚说明终局、阶段、边界、验收
 
-### Phase 3（后续）
+### Phase 1：单仓库修复闭环
 
-目标：平台化与企业级能力。
+目标：
 
-- durable execution / checkpoint / resume
-- skills / playbooks / policy center
-- MCP 化工具平台
-- GitHub / Jira / CI / docs 集成
-- benchmark / dashboard / BI
+- 在 playground 中跑通 `issue -> retrieve -> patch -> apply -> test`
+
+这一阶段必须真正理解：
+
+- evidence retrieval 如何决定 patch 质量上限
+- unified diff / patch apply 为什么是 agent 的第一个硬门槛
+- 为什么 verify 结果必须独立于 coder 结论
+- 为什么最小 diff 比“看起来聪明”的大改动更重要
+
+退出门槛：
+
+- 至少 1 个 playground 失败任务自动修复成功
+- 至少 3 条可回放 run artifact
+
+### Phase 2：可靠执行器
+
+目标：
+
+- 把闭环升级成 `retrieve -> patch -> apply -> verify -> retry -> summarize`
+- 支持 `lint + tsc + test + build`
+- 产出 branch / commit / PR draft
+
+这一阶段必须真正理解：
+
+- 多轮修复循环的终止条件与“无进展”判断
+- 错误解析器如何把日志变成下一轮输入
+- 为什么 PR 文本只能引用已验证事实
+- 为什么风险阈值、文件数限制、预算限制必须尽早进入系统
+
+退出门槛：
+
+- 至少 1 条“失败后自动修复成功”的 run
+- 有固定任务集与 success rate
+
+### Phase 3：异步工作流 agent
+
+目标：
+
+- 从本地串行执行器升级到更接近产品形态的 workflow agent
+- 引入审批点、任务状态、外部触发、可恢复执行
+
+这一阶段必须真正理解：
+
+- durable execution / checkpoint / resume 的必要性
+- issue / PR / CI failure 为什么必须统一成任务对象
+- 人工审批在 agent 系统里不是 UX 点缀，而是治理节点
+- skills / playbooks 为什么比“大 prompt”更可维护
+
+退出门槛：
+
+- 能稳定处理异步任务输入
+- 能在关键节点暂停、恢复、交付
+
+### Phase 4：产品级平台能力
+
+目标：
+
+- 接近 Claude Code / Codex 的核心工程能力形态
+- 支持规则、审批、技能、可观测、外部系统接入
+
+这一阶段必须真正理解：
+
+- 为什么工具平台、runtime、policy、eval 才是真正的产品护城河
+- 为什么 benchmark、accept rate、rollback rate 比单次 demo 更重要
+- 为什么“平台能力”需要长期运维，而不是一次性实现
+
+退出门槛：
+
+- 具备稳定的任务流、交付流、治理流、评估流
+
+## 明确不做什么
+
+在 Phase 1 / Phase 2 期间，默认不做：
+
+- 真正的多 agent 自由对话系统
+- 泛语言、泛技术栈的大而全平台
+- 自动 merge
+- 复杂 UI 仪表盘先行
+- 过早引入重型分布式基础设施
 
 ## 文档导航
 
 - 总路线图：`docs/agent-plan/01-two-week-roadmap.md`
-- Week 1（MVP 闭环）：`docs/agent-plan/02-week1-mvp-loop.md`
-- Week 2（PR 级交付）：`docs/agent-plan/03-week2-pr-grade.md`
+- Phase 1 详细计划（历史文件名保留）：`docs/agent-plan/02-week1-mvp-loop.md`
+- Phase 2 详细计划（历史文件名保留）：`docs/agent-plan/03-week2-pr-grade.md`
 - 每日执行模板：`docs/agent-plan/04-daily-checklist.md`
-- 目标架构与阶段映射：`docs/agent-plan/05-target-architecture.md`
-- 独立实现限制评估：`docs/agent-plan/06-solo-build-constraints.md`
-
-## 核心设计原则
-
-1. 先做 `单 runtime + 多阶段节点`，不要过早做多 agent。
-2. 先把 tool / log / verify 做稳定，再追求更强模型能力。
-3. 模型负责判断，固定流程沉淀到代码、脚本、skills、policy。
-4. 先证据后改动；每次 patch 必须绑定验证计划。
-5. 优先最小 diff、最少文件、最短验证路径。
-6. 所有新增能力先接日志，否则视为未完成。
+- 目标架构：`docs/agent-plan/05-target-architecture.md`
+- 独立实现边界：`docs/agent-plan/06-solo-build-constraints.md`
+- 学习与理解地图：`docs/agent-plan/07-phase-learning-map.md`
 
 ## 执行规则
 
-1. 严格按阶段推进，不跨阶段提前堆功能。
+1. 阶段内只解决该阶段的主问题，不并行扩很多方向。
 2. 每天结束必须产出：
    - 可运行代码
    - 一条可复现命令
-   - 一份 run artifact（日志/结果）
-3. 新增能力必须先接入日志，保证可观测。
-4. 任何失败先归类（检索失败/补丁失败/验证失败/环境失败），再改策略。
-5. 高风险操作默认不做自动化：删除大量文件、改认证/计费/生产配置、数据库迁移。
-6. Week 1/2 默认只针对前端/Node/TS 任务收敛，不扩散到宽泛语言生态。
-
-## 阶段门槛（Definition of Done）
-
-- Week 1 完成门槛：
-  - 可以在 `agent-playground` 完成“失败测试 -> 自动修复 -> 测试通过”的单任务闭环
-  - 至少有 3 条可回放 run 日志
-- Week 2 完成门槛：
-  - 支持 `lint + tsc + test + build` 验证链
-  - 支持最多 N 轮（建议 3）自动修复迭代
-  - 自动生成 PR 文本（标题、变更摘要、验证结果、风险）
-  - 有一个最小回归任务集并给出成功率
+   - 一份 run artifact 或阶段性文档
+3. 所有新增能力先接日志，否则视为未完成。
+4. 每次失败必须归类：`retrieve / edit / apply / verify / infra / unknown`
+5. 每次新增机制，必须写清“我学懂了什么”。
+6. 高风险操作默认不自动化：大量删除、认证/计费、生产配置、数据库迁移。
 
 ## 文档更新规则
 
 出现以下任一变化时，必须同步更新 `AGENTS.md` 或对应 docs：
 
-- 新增一个 agent 阶段或新的 failure type
+- 新增一个 agent 阶段或阶段门槛变化
+- 新增一种关键 failure type
 - 引入新的验证步骤、交付物或风险边界
-- 调整当前阶段目标、非目标或验收口径
-- 增加一个后续里程碑，但短期不实现
+- 发现“原本以为理解了，其实没理解透”的机制，需要补学习文档

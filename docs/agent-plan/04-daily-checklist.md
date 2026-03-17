@@ -4,6 +4,7 @@
 
 - 今天要打通的单一能力：
 - 对应层级（LLM / Retrieval / Tools / Verify / Git / Observability）：
+- 对应阶段（Week 1 / Week 2 / 后续）：
 - 预期可演示命令：
 
 ## 2) 实现任务
@@ -11,12 +12,14 @@
 1. 代码改动：
 2. 日志字段补充：
 3. 失败处理或保护机制：
+4. 本次明确不做什么：
 
 ## 3) 验收
 
 1. 成功用例：
 2. 失败用例：
 3. 结果文件（runs/artifacts 路径）：
+4. 失败归类（retrieve/edit/apply/verify/infra）：
 
 ## 4) 原理复盘（必须写）
 
@@ -35,8 +38,10 @@
 ```md
 Date: YYYY-MM-DD
 Goal:
+Scope:
 Changes:
 Validation:
+FailureType:
 Metrics:
 Learned:
 Next:
